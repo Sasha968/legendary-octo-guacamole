@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Terraria Clone</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: #000;
+            overflow: hidden;
+            font-family: Arial, sans-serif;
+        }
+        canvas {
+            display: block;
+            image-rendering: pixelated;
+            image-rendering: crisp-edges;
+        }
+        #ui {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 5px;
+            background: rgba(0,0,0,0.7);
+            padding: 10px;
+            border-radius: 5px;
+        }
+        .slot {
+            width: 50px;
+            height: 50px;
+            border: 2px solid #555;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #fff;
+            font-size: 12px;
+            position: relative;
+        }
+        .slot.active { border-color: #fff; }
+        .slot canvas { width: 40px; height: 40px; }
+        .slot-num {
+            position: absolute;
+            top: 2px;
+            left: 4px;
+            font-size: 10px;
+            color: #aaa;
+        }
+        #info {
+            position: fixed;
+            top: 10px;
+            left: 10px;
+            color: #fff;
+            font-size: 14px;
+            background: rgba(0,0,0,0.7);
+            padding: 10px;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="game"></canvas>
+    <div id="info">
+        WASD/Стрелки - движение | ЛКМ - ломать | ПКМ - ставить | 1-9 - выбор блока
+    </div>
+    <div id="ui"></div>
+
+    <script>
+        const canvas = document.getElementById('game');
+        const ctx = canvas.getContext('2d');
+        
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+        
+        window.addEventListener('resize', () => {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        });
+
+        // Настройки
+        const TILE_SIZE = 32;
+        const WORLD_W = 200;
+        const WORLD_H = 100;
+        const GRAVITY = 0.5;
+        const JUMP_FORCE = -10;
+        const MOVE_SPEED = 4;
+
+        // Типы блоков
+        const BLOCKS = {
+            0: null, // воздух
+            1: { name: 'Трава', color: '#4a7c3a', top: '#5a9c4a' },
+            2: { name: 'Земля', color: '#8b5a2b' },
+            3: { name: 'Камень', color: '#6b6b6b' },
+            4: { name: 'Дерево', color: '#6b4423' },
+            5: { name: 'Листва', color: '#2d5016' },
+            6: { name: 'Уголь', color: '#3b3b3b' },
+            7: { name: 'Железо', color: '#a89080' },
+            8: { name: 'Золото', color: '#ffd700' },
+            9: { name: 'Песок', color: '#e8d57a' }
+        };
+
+        // Генерация текстур
+        const textures = {};
+        function generateTextures() {
+            for (let id in BLOCKS) {
+                if (id == 0) continue;
+                const block = BLOCKS[id];
+                const tex = document.createElement('canvas');
+                tex.width = tex.height = TILE_SIZE;
+                const tctx = tex.getContext('2d');
+                
+                tctx.fillStyle = block.color;
+                tctx.fillRect(0, 0, TILE_SIZE, TILE_SIZE);
+                
+                // Добавляем детали
+                if (id == 1) { // Трава
+                    tctx.fillStyle = block.top;
+                    tctx.fillRect(0, 0, TILE_SIZE, 8);
+                    for (let i = 0; i < 10; i++) {
+                        tctx.fillStyle = `rgba(0,0,0,${Math.random() * 0.2})`;
+                        tctx.fillRect(Math.random() * TILE_SIZE, Math.random() * TILE_SIZE, 2, 2);
+                    }
+                } else if (id == 2) { // Земля
+                    for (let i = 0; i < 15; i++) {
+                        tctx.fillStyle = `rgba(0,0,0,${Math.random() * 0.3})`;
+                        tctx.fillRect(Math.random() * TILE_SIZE, Math.random() * TILE_SIZE, 3, 3);
+                    }
+                } else if (id == 3) { // Камень
+                    for (let i = 0; i < 20; i++) {
+                        tctx.fillStyle = `rgba(${Math.random() > 0.5 ? 255 : 0},${Math.random() > 0.5 ? 255 : 0},${Math.random() > 0.5 ? 255 : 0},${Math.random() * 0.1})`;
+                        tctx.fillRect(Math.random() * TILE_SIZE, Math.random() * TILE_SIZE, 2, 2);
+                    }
+                } else if (id == 4) { // Дерево
+                    for (let y = 0; y < TILE_SIZE; y += 4) {
+                        tctx.fillStyle = `rgba(0,0,0,${Math.random() * 0.2})`;
+                        tctx.fillRect(0, y, TILE_SIZE, 2);
+                    }
+                } else if (id == 5) { // Листва
+                    for (let i = 0; i < 30; i++) {
+                        tctx.fillStyle = `rgba(${50 + Math.random() * 50},${100 + Math.random() * 50},${20 + Math.random() * 30},0.8)`;
+                        tctx.fillRect(Math.random() * TILE_SIZE, Math.random() * TILE_SIZE, 3, 3);
+                    }
+                } else if (id >= 6 && id <= 8) { // Руды
+                    for (let i = 0; i < 8; i++) {
+                        tctx.fillStyle = block.color;
+                        tctx.fillRect(Math.random() * (TILE_SIZE - 4), Math.random() * (TILE_SIZE - 4), 4, 4);
+                    }
+                } else if (id == 9) { // Песок
+                    for (let i = 0; i < 20; i++) {
+                        tctx.fillStyle = `rgba(0,0,0,${Math.random() * 0.1})`;
+                        tctx.fillRect(Math.random() * TILE_SIZE, Math.random() * TILE_SIZE, 1, 1);
+                    }
+                }
+                
+                // Границы
+                tctx.strokeStyle = 'rgba(0,0,0,0.3)';
+                tctx.lineWidth = 1;
+                tctx.strokeRect(0, 0, TILE_SIZE, TILE_SIZE);
+                
+                textures[id] = tex;
+            }
+        }
+        generateTextures();
+
+        // Генерация мира
+        const world = [];
+        function generateWorld() {
+            for (let y = 0; y < WORLD_H; y++) {
+                world[y] = [];
+                for (let x = 0; x < WORLD_W; x++) {
+                    world[y][x] = 0;
+                }
+            }
+            
+            let height = WORLD_H / 2;
+            for (let x = 0; x < WORLD_W; x++) {
+                height += (Math.random() - 0.5) * 2;
+                height = Math.max(20, Math.min(WORLD_H - 10, height));
+                
+                for (let y = Math.floor(height); y < WORLD_H; y++) {
+                    if (y == Math.floor(height)) {
+                        world[y][x] = 1; // трава
+                    } else if (y < height + 5) {
+                        world[y][x] = 2; // земля
+                    } else {
+                        world[y][x] = 3; // камень
+                        
+                        // Руды
+                        if (Math.random() < 0.02) world[y][x] = 6; // уголь
+                        else if (Math.random() < 0.01 && y > height + 15) world[y][x] = 7; // железо
+                        else if (Math.random() < 0.005 && y > height + 25) world[y][x] = 8; // золото
+                    }
+                }
+                
+                // Деревья
+                if (Math.random() < 0.05 && x > 5 && x < WORLD_W - 5) {
+                    const treeHeight = 4 + Math.floor(Math.random() * 3);
+                    for (let ty = 0; ty < treeHeight; ty++) {
+                        if (Math.floor(height) - ty - 1 >= 0) {
+                            world[Math.floor(height) - ty - 1][x] = 4;
+                        }
+                    }
+                    // Листва
+                    for (let ly = -2; ly <= 0; ly++) {
+                        for (let lx = -2; lx <= 2; lx++) {
+                            const tx = x + lx;
+                            const ty = Math.floor(height) - treeHeight + ly;
+                            if (tx >= 0 && tx < WORLD_W && ty >= 0 && ty < WORLD_H) {
+                                if (world[ty][tx] == 0 && Math.random() > 0.2) {
+                                    world[ty][tx] = 5;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        generateWorld();
+
+        // Игрок
+        const player = {
+            x: WORLD_W / 2 * TILE_SIZE,
+            y: 0,
+            width: 24,
+            height: 56,
+            vx: 0,
+            vy: 0,
+            onGround: false
+        };
+        
+        // Найти поверхность для спавна
+        for (let y = 0; y < WORLD_H; y++) {
+            if (world[y][Math.floor(WORLD_W / 2)] != 0) {
+                player.y = (y - 2) * TILE_SIZE;
+                break;
+            }
+        }
+
+        // Камера
+        const camera = { x: 0, y: 0 };
+
+        // Инвентарь
+        const inventory = [1, 2, 3, 4, 5, 6, 7, 8, 9];
+        let selectedSlot = 0;
+
+        // Управление
+        const keys = {};
+        const mouse = { x: 0, y: 0, left: false, right: false };
+
+        window.addEventListener('keydown', e => {
+            keys[e.key.toLowerCase()] = true;
+            if (e.key >= '1' && e.key <= '9') {
+                selectedSlot = parseInt(e.key) - 1;
+                updateUI();
+            }
+        });
+        window.addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
+        
+        canvas.addEventListener('mousemove', e => {
+            mouse.x = e.clientX;
+            mouse.y = e.clientY;
+        });
+        canvas.addEventListener('mousedown', e => {
+            e.preventDefault();
+            if (e.button === 0) mouse.left = true;
+            if (e.button === 2) mouse.right = true;
+        });
+        canvas.addEventListener('mouseup', e => {
+            if (e.button === 0) mouse.left = false;
+            if (e.button === 2) mouse.right = false;
+        });
+        canvas.addEventListener('contextmenu', e => e.preventDefault());
+
+        // Коллизии
+        function checkCollision(x, y, w, h) {
+            const left = Math.floor(x / TILE_SIZE);
+            const right = Math.floor((x + w - 1) / TILE_SIZE);
+            const top = Math.floor(y / TILE_SIZE);
+            const bottom = Math.floor((y + h - 1) / TILE_SIZE);
+            
+            for (let y = top; y <= bottom; y++) {
+                for (let x = left; x <= right; x++) {
+                    if (x >= 0 && x < WORLD_W && y >= 0 && y < WORLD_H) {
+                        if (world[y][x] != 0) return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        // Обновление UI
+        function updateUI() {
+            const ui = document.getElementById('ui');
+            ui.innerHTML = '';
+            for (let i = 0; i < inventory.length; i++) {
+                const slot = document.createElement('div');
+                slot.className = 'slot' + (i == selectedSlot ? ' active' : '');
+                
+                const num = document.createElement('div');
+                num.className = 'slot-num';
+                num.textContent = i + 1;
+                slot.appendChild(num);
+                
+                if (inventory[i] && textures[inventory[i]]) {
+                    const texCanvas = textures[inventory[i]].cloneNode(true);
+                    slot.appendChild(texCanvas);
+                }
+                
+                ui.appendChild(slot);
+            }
+        }
+        updateUI();
+
+        // Игровой цикл
+        function update() {
+            // Движение
+            player.vx = 0;
+            if (keys['a'] || keys['arrowleft']) player.vx = -MOVE_SPEED;
+            if (keys['d'] || keys['arrowright']) player.vx = MOVE_SPEED;
+            
+            if ((keys['w'] || keys[' '] || keys['arrowup']) && player.onGround) {
+                player.vy = JUMP_FORCE;
+                player.onGround = false;
+            }
+            
+            // Гравитация
+            player.vy += GRAVITY;
+            if (player.vy > 15) player.vy = 15;
+            
+            // Движение по X
+            player.x += player.vx;
+            if (checkCollision(player.x, player.y, player.width, player.height)) {
+                player.x -= player.vx;
+            }
+            
+            // Движение по Y
+            player.y += player.vy;
+            player.onGround = false;
+            if (checkCollision(player.x, player.y, player.width, player.height)) {
+                player.y -= player.vy;
+                if (player.vy > 0) player.onGround = true;
+                player.vy = 0;
+            }
+            
+            // Границы мира
+            player.x = Math.max(0, Math.min(player.x, (WORLD_W - 1) * TILE_SIZE));
+            player.y = Math.max(0, Math.min(player.y, (WORLD_H - 1) * TILE_SIZE));
+            
+            // Камера
+            camera.x = player.x + player.width / 2 - canvas.width / 2;
+            camera.y = player.y + player.height / 2 - canvas.height / 2;
+            camera.x = Math.max(0, Math.min(camera.x, WORLD_W * TILE_SIZE - canvas.width));
+            camera.y = Math.max(0, Math.min(camera.y, WORLD_H * TILE_SIZE - canvas.height));
+            
+            // Взаимодействие с блоками
+            const worldX = Math.floor((mouse.x + camera.x) / TILE_SIZE);
+            const worldY = Math.floor((mouse.y + camera.y) / TILE_SIZE);
+            
+            if (worldX >= 0 && worldX < WORLD_W && worldY >= 0 && worldY < WORLD_H) {
+                const dist = Math.hypot(
+                    (worldX * TILE_SIZE + TILE_SIZE / 2) - (player.x + player.width / 2),
+                    (worldY * TILE_SIZE + TILE_SIZE / 2) - (player.y + player.height / 2)
+                );
+                
+                if (dist < TILE_SIZE * 5) {
+                    if (mouse.left) {
+                        world[worldY][worldX] = 0;
+                    }
+                    if (mouse.right && world[worldY][worldX] == 0) {
+                        const blockRect = {
+                            x: worldX * TILE_SIZE,
+                            y: worldY * TILE_SIZE,
+                            width: TILE_SIZE,
+                            height: TILE_SIZE
+                        };
+                        const playerRect = {
+                            x: player.x,
+                            y: player.y,
+                            width: player.width,
+                            height: player.height
+                        };
+                        
+                        if (!(blockRect.x < playerRect.x + playerRect.width &&
+                              blockRect.x + blockRect.width > playerRect.x &&
+                              blockRect.y < playerRect.y + playerRect.height &&
+                              blockRect.y + blockRect.height > playerRect.y)) {
+                            world[worldY][worldX] = inventory[selectedSlot];
+                        }
+                    }
+                }
+            }
+        }
+
+        function render() {
+            // Небо
+            ctx.fillStyle = '#87CEEB';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            // Видимая область
+            const startX = Math.max(0, Math.floor(camera.x / TILE_SIZE));
+            const endX = Math.min(WORLD_W, Math.ceil((camera.x + canvas.width) / TILE_SIZE) + 1);
+            const startY = Math.max(0, Math.floor(camera.y / TILE_SIZE));
+            const endY = Math.min(WORLD_H, Math.ceil((camera.y + canvas.height) / TILE_SIZE) + 1);
+            
+            // Блоки
+            for (let y = startY; y < endY; y++) {
+                for (let x = startX; x < endX; x++) {
+                    const block = world[y][x];
+                    if (block != 0 && textures[block]) {
+                        const screenX = x * TILE_SIZE - camera.x;
+                        const screenY = y * TILE_SIZE - camera.y;
+                        ctx.drawImage(textures[block], screenX, screenY);
+                    }
+                }
+            }
+            
+            // Игрок
+            ctx.fillStyle = '#FFD700';
+            ctx.fillRect(
+                player.x - camera.x,
+                player.y - camera.y,
+                player.width,
+                player.height
+            );
+            
+            // Курсор
+            const worldX = Math.floor((mouse.x + camera.x) / TILE_SIZE);
+            const worldY = Math.floor((mouse.y + camera.y) / TILE_SIZE);
+            const dist = Math.hypot(
+                (worldX * TILE_SIZE + TILE_SIZE / 2) - (player.x + player.width / 2),
+                (worldY * TILE_SIZE + TILE_SIZE / 2) - (player.y + player.height / 2)
+            );
+            
+            if (dist < TILE_SIZE * 5 && worldX >= 0 && worldX < WORLD_W && worldY >= 0 && worldY < WORLD_H) {
+                ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+                ctx.lineWidth = 2;
+                ctx.strokeRect(
+                    worldX * TILE_SIZE - camera.x,
+                    worldY * TILE_SIZE - camera.y,
+                    TILE_SIZE,
+                    TILE_SIZE
+                );
+            }
+        }
+
+        function gameLoop() {
+            update();
+            render();
+            requestAnimationFrame(gameLoop);
+        }
+
+        gameLoop();
+    </script>
+</body>
+</html>
